@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.20)
+project(matrix-multimply-optimization)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+add_subdirectory(v0_basic)
+add_subdirectory(v1_tile)
+add_subdirectory(vinfA_cublas)
+add_subdirectory(vinfB_cutlass)
