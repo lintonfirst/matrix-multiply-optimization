@@ -30,6 +30,7 @@ int main(int argc,char* argv[]) {
     Eval eval;
 
     float duration=eval.eval([&]() {
+        cudaMemset(C.elements,0,dim*dim*sizeof(float));
         CutlassGemm::Arguments args({dim , dim, dim},  // Gemm Problem dimensions
                               {A.elements, dim},    // Tensor-ref for source matrix A
                               {B.elements, dim},    // Tensor-ref for source matrix B
@@ -40,4 +41,6 @@ int main(int argc,char* argv[]) {
         cutlass::Status status = gemm_operator(args);
     });
     std::cout<<"duration: "<<duration<<" ms"<<std::endl;
+    std::cout<<cudaGetErrorString(cudaGetLastError())<<std::endl;
+    std::cout<<"isCalculationRight:"<<check(A,B,C)<<std::endl;
 }

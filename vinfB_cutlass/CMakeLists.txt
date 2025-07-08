@@ -24,5 +24,6 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 set(CMAKE_CUDA_ARCHITECTURES  86)
 include_directories(cutlass/include)
-add_executable(vinfB_cutlass main.cu)
+add_executable(vinfB_cutlass main.cu ../common/check.cpp ../common/matrix.cpp)
 target_compile_features(vinfB_cutlass PRIVATE cxx_std_17 cuda_std_17)
+target_link_libraries(vinfB_cutlass PRIVATE CUDA::cublas)

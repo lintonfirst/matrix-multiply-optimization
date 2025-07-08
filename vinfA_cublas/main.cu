@@ -25,6 +25,7 @@ int main(int argc,char* argv[]) {
     float duration=eval.eval([&]() {
         float alpha = 1.0f;
         float beta = 0.0f;
+        cudaMemset(C.elements,0,dim*dim*sizeof(float));
         cublasSgemm(
             handle,
             CUBLAS_OP_N, CUBLAS_OP_N,
@@ -38,6 +39,8 @@ int main(int argc,char* argv[]) {
     });
     cublasDestroy(handle);
     std::cout<<"duration: "<<duration<<" ms"<<std::endl;
+    std::cout<<cudaGetErrorString(cudaGetLastError())<<std::endl;
+    std::cout<<"isCalculationRight:"<<check(A,B,C)<<std::endl;
 
     freeMatrix(&A);
     freeMatrix(&B);
