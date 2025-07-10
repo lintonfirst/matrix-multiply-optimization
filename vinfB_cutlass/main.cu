@@ -8,14 +8,14 @@
 #include "cutlass/gemm/device/gemm.h"
 
 
-using ColumnMajor = cutlass::layout::ColumnMajor;
+using RowMajor = cutlass::layout::RowMajor;
 
 using CutlassGemm = cutlass::gemm::device::Gemm<float,        // Data-type of A matrix
-                                                  ColumnMajor,  // Layout of A matrix
+                                                  RowMajor,  // Layout of A matrix
                                                   float,        // Data-type of B matrix
-                                                  ColumnMajor,  // Layout of B matrix
+                                                  RowMajor,  // Layout of B matrix
                                                   float,        // Data-type of C matrix
-                                                  ColumnMajor>; // Layout of C matrix
+                                                  RowMajor>; // Layout of C matrix
 int main(int argc,char* argv[]) {
     int dim =1024;
     if(argc>1) {
@@ -30,7 +30,6 @@ int main(int argc,char* argv[]) {
     Eval eval;
 
     float duration=eval.eval([&]() {
-        cudaMemset(C.elements,0,dim*dim*sizeof(float));
         CutlassGemm::Arguments args({dim , dim, dim},  // Gemm Problem dimensions
                               {A.elements, dim},    // Tensor-ref for source matrix A
                               {B.elements, dim},    // Tensor-ref for source matrix B

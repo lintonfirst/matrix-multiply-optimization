@@ -1,5 +1,6 @@
 #include "common/matrix.h"
 
+int count=1;
 void initializeMatrix(Matrix* matrix,int dim) {
     matrix->width = dim;
     matrix->height = dim;
@@ -7,10 +8,11 @@ void initializeMatrix(Matrix* matrix,int dim) {
     cudaMalloc(&matrix->elements, size);
     float* hostElements = (float*)malloc(size);
     for (int i = 0; i < dim * dim; i++) {
-        hostElements[i] = 1;
+        hostElements[i] = count+i%17;
     }
     cudaMemcpy(matrix->elements, hostElements, size, cudaMemcpyHostToDevice);
     free(hostElements);
+    count++;
 }
 
 void initializeMatrix_zero(Matrix* matrix,int dim){

@@ -36,7 +36,6 @@ int main(int argc,char* argv[]) {
 
     
     float duration=eval.eval([&]() {
-        cudaMemset(C.elements,0,dim*dim*sizeof(float));
         dim3 grid(dim / 16, dim / 16);
         dim3 block(16, 16);
         matmul<<<grid,block>>>(A, B, C);
