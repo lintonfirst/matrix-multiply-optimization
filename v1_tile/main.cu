@@ -7,6 +7,7 @@
 #include <iostream>
 
 #define TILE_SIZE 16
+#define KB *1024
 
 __global__ void matmul(Matrix A, Matrix B, Matrix C) {
     __shared__ float tile_A[TILE_SIZE][TILE_SIZE];
@@ -214,10 +215,14 @@ void useregister_tiled_matmul(int dim,Matrix A,Matrix B,Matrix C){
     std::cout<<"isCalculationRight:"<<check(A,B,C)<<std::endl;
 }
 
-__global__ void matmul4(Matrix A, Matrix B, Matrix C) {
-    __shared__ float tile_A[64][64];
-    __shared__ float tile_B[64][64];
+__device__ __forceinline__ uint32_t smem_ptr_to_offset(void* ptr) {
+    return static_cast<uint32_t>(__cvta_generic_to_shared(ptr));
+}
 
+__global__ void matmul4(Matrix A, Matrix B, Matrix C) {
+    extern __shared__ float sdata[];
+    float (*tile_A)[64][64] = (float(*)[64][64])sdata;
+    float (*tile_B)[64][64] = (float(*)[64][64])&sdata[2*64*64];
 
     float* matA = A.elements;
     float* matB = B.elements;
@@ -234,34 +239,69 @@ __global__ void matmul4(Matrix A, Matrix B, Matrix C) {
         sum[i] = 0;
     }
 
+    // prologue first global to shared
+    for(int j=0;j<4;j++){
+        int i=0;
+        int smem_row = tile_offset_row + j;
+        int smem_col = tile_offset_col;
+
+        int global_row_A = tile_id_row + smem_row;
+        int global_col_A = i * 64 + smem_col;
+
+        float4* vec_tileA = (float4*)&tile_A[0][smem_row][smem_col];
+        float4* vecA = (float4*)&matA[global_col_A + global_row_A * A.width];
+        uint32_t smem_ptr_A = smem_ptr_to_offset(vec_tileA);
+        asm volatile ("cp.async.ca.shared.global [%0], [%1], %2;\n"  :: "r"(smem_ptr_A), "l"(vecA), "n"(sizeof(float4)));
+
+        int global_row_B = i * 64 + smem_row;
+        int global_col_B = tile_id_col + smem_col;
+
+        float4* vec_tileB = (float4*)&tile_B[0][smem_row][smem_col];
+        float4* vecB = (float4*)&matB[global_col_B + global_row_B * B.width];
+        uint32_t smem_ptr_B = smem_ptr_to_offset(vec_tileB);
+        asm volatile ("cp.async.ca.shared.global [%0], [%1], %2;\n"  :: "r"(smem_ptr_B), "l"(vecB), "n"(sizeof(float4)));
+    }
+    asm volatile ("cp.async.commit_group;\n" :: );
+
     for(int i=0;i<gridDim.x;i++){
-        for(int j=0;j<4;j++){
-            int smem_row = tile_offset_row + j;
-            int smem_col = tile_offset_col;
+        if(i<gridDim.x-1){
+            int index = i+1;
+            for(int j=0;j<4;j++){
+                int smem_row = tile_offset_row + j;
+                int smem_col = tile_offset_col;
 
-            int global_row_A = tile_id_row + smem_row;
-            int global_col_A = i * 64 + smem_col;
+                int global_row_A = tile_id_row + smem_row;
+                int global_col_A = index * 64 + smem_col;
 
-            float4* vec_tileA = (float4*)&tile_A[smem_row][smem_col];
-            float4* vecA = (float4*)&matA[global_col_A + global_row_A * A.width];
-            *vec_tileA = *vecA;
+                float4* vec_tileA = (float4*)&tile_A[index%2][smem_row][smem_col];
+                float4* vecA = (float4*)&matA[global_col_A + global_row_A * A.width];
+                uint32_t smem_ptr_A = smem_ptr_to_offset(vec_tileA);
+                asm volatile ("cp.async.ca.shared.global [%0], [%1], %2;\n"  :: "r"(smem_ptr_A), "l"(vecA), "n"(sizeof(float4)));
 
-            int global_row_B = i * 64 + smem_row;
-            int global_col_B = tile_id_col + smem_col;
+                int global_row_B = index * 64 + smem_row;
+                int global_col_B = tile_id_col + smem_col;
 
-            float4* vec_tileB = (float4*)&tile_B[smem_row][smem_col];
-            float4* vecB = (float4*)&matB[global_col_B + global_row_B * B.width];
-            *vec_tileB = *vecB;
+                float4* vec_tileB = (float4*)&tile_B[index%2][smem_row][smem_col];
+                float4* vecB = (float4*)&matB[global_col_B + global_row_B * B.width];
+                uint32_t smem_ptr_B = smem_ptr_to_offset(vec_tileB);
+                asm volatile ("cp.async.ca.shared.global [%0], [%1], %2;\n"  :: "r"(smem_ptr_B), "l"(vecB), "n"(sizeof(float4)));
+            }
+            asm volatile ("cp.async.commit_group;\n" :: );
+        }
+        
+        if(i<gridDim.x-1){
+            asm volatile ("cp.async.wait_group %0;\n" :: "n"(1));
+        }
+        else{
+            asm volatile ("cp.async.wait_group %0;\n" :: "n"(0));
         }
         __syncthreads();
         for(int j=0;j<16;j++){
             float4 sub_a[4];
             float4 sub_b[4];
             for(int k=0;k<4;k++){
-                sub_a[k] = *(float4*)&tile_A[tile_offset_row+k][j*4];
-                {
-                    sub_b[k] = *(float4*)&tile_B[j*4+k][tile_offset_col];
-                }
+                sub_a[k] = *(float4*)&tile_A[i%2][tile_offset_row+k][j*4];
+                sub_b[k] = *(float4*)&tile_B[i%2][j*4+k][tile_offset_col];
             }
             for(int m=0;m<4;m++){
                 sum[m*4+0] += sub_a[m].x*sub_b[0].x;
@@ -282,7 +322,6 @@ __global__ void matmul4(Matrix A, Matrix B, Matrix C) {
                 sum[m*4+3] += sub_a[m].w*sub_b[3].w;
             }
         }
-        __syncthreads();
     }
     for(int i=0;i<4;i++){
         int row = tile_id_row + tile_offset_row + i;
@@ -292,12 +331,13 @@ __global__ void matmul4(Matrix A, Matrix B, Matrix C) {
     }
 }
 
-void bc_free_tiled_matmul(int dim,Matrix A,Matrix B,Matrix C){
+void pipeline_tiled_matmul(int dim,Matrix A,Matrix B,Matrix C){
+    cudaFuncSetAttribute(matmul4,cudaFuncAttributeMaxDynamicSharedMemorySize, 64 KB);
     Eval eval;
     float duration=eval.eval([&]() {
         dim3 grid(dim/64, dim/64);
         dim3 block(16,16);
-        matmul4<<<grid,block>>>(A,B,C);
+        matmul4<<<grid,block,64 KB>>>(A,B,C);
     });
     std::cout<<"Section:fragemnt_tiled_matmul================================================="<<std::endl;
     std::cout<<"duration: "<<duration<<" ms"<<std::endl;
@@ -319,5 +359,5 @@ int main(int argc,char* argv[]) {
     basic_tiled_matmul(dim,A,B,C);
     fragent_vec_tiled_matmul(dim,A,B,C);
     useregister_tiled_matmul(dim,A,B,C);
-    bc_free_tiled_matmul(dim,A,B,C);
+    pipeline_tiled_matmul(dim,A,B,C);
 }
